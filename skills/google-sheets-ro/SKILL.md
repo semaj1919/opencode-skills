@@ -38,6 +38,17 @@ https://docs.google.com/spreadsheets/d/<SPREADSHEET_ID>/edit
 
 ## Actions
 
+### `list_sheets` — List all sheet names
+Metadata-only call — does not fetch any cell data. Use this first to discover sheet names before reading ranges.
+
+```bash
+node ./scripts/read-sheet.mjs --spreadsheet <ID> --action list_sheets
+```
+
+Returns: `{ spreadsheetTitle, sheets: [string] }`
+
+---
+
 ### `read_all` — Read the entire spreadsheet
 Fetches every sheet in one batch request.
 
@@ -51,9 +62,9 @@ Returns: `{ spreadsheetTitle, sheets: [{ title, range, data[][] }] }`
 
 ### `read_range` — Read a range (A1 notation)
 ```bash
-node ./scripts/read-sheet.mjs --spreadsheet <ID> --action read_range --range "Sheet1!A1:D20"
+node ./scripts/read-sheet.mjs --spreadsheet <ID> --action read_range --range 'Sheet1!A1:D20'
 # Or an entire sheet:
-node ./scripts/read-sheet.mjs --spreadsheet <ID> --action read_range --range "Sheet1"
+node ./scripts/read-sheet.mjs --spreadsheet <ID> --action read_range --range 'Sheet1'
 ```
 
 Returns: `{ range, data[][] }`
@@ -62,7 +73,7 @@ Returns: `{ range, data[][] }`
 
 ### `read_cell` — Read a single cell
 ```bash
-node ./scripts/read-sheet.mjs --spreadsheet <ID> --action read_cell --range "Sheet1!B2"
+node ./scripts/read-sheet.mjs --spreadsheet <ID> --action read_cell --range 'Sheet1!B2'
 ```
 
 Returns: `{ range, value }` — `value` is `null` if the cell is empty.
@@ -71,7 +82,7 @@ Returns: `{ range, value }` — `value` is `null` if the cell is empty.
 
 ### `read_multi` — Read multiple ranges in one call
 ```bash
-node ./scripts/read-sheet.mjs --spreadsheet <ID> --action read_multi --ranges "Sheet1!A:A,Sheet2!B1:C10"
+node ./scripts/read-sheet.mjs --spreadsheet <ID> --action read_multi --ranges 'Sheet1!A:A,Sheet2!B1:C10'
 ```
 
 Returns: `[{ range, data[][] }, ...]`
@@ -83,7 +94,7 @@ Returns: `[{ range, data[][] }, ...]`
 | Flag | Description |
 |---|---|
 | `--spreadsheet <ID>` | Spreadsheet ID (required) |
-| `--action <action>` | `read_all` \| `read_range` \| `read_cell` \| `read_multi` |
+| `--action <action>` | `list_sheets` \| `read_all` \| `read_range` \| `read_cell` \| `read_multi` |
 | `--range <A1>` | A1 notation (required for `read_range`, `read_cell`) |
 | `--ranges <r1,r2>` | Comma-separated ranges (required for `read_multi`) |
 | `--key-file <path>` | Override key file path |
@@ -95,6 +106,9 @@ Returns: `[{ range, data[][] }, ...]`
 
 ```js
 const reader = require('./scripts/read-sheet.mjs');
+
+// List sheet names only
+const { spreadsheetTitle, sheets } = await reader.getSheetNames(spreadsheetId);
 
 // Read everything
 const { spreadsheetTitle, sheets } = await reader.readAll(spreadsheetId);
@@ -125,6 +139,11 @@ const results = await reader.readMultipleRanges(spreadsheetId, [
 
 ## Common Patterns
 
+**Discover sheets before reading:**
+```bash
+node ./scripts/read-sheet.mjs --spreadsheet <ID> --action list_sheets --json
+```
+
 **Get all data as JSON for downstream processing:**
 ```bash
 node ./scripts/read-sheet.mjs --spreadsheet <ID> --action read_all --json
@@ -133,12 +152,12 @@ node ./scripts/read-sheet.mjs --spreadsheet <ID> --action read_all --json
 **Read a header row + data range separately:**
 ```bash
 node ./scripts/read-sheet.mjs --spreadsheet <ID> --action read_multi \
-  --ranges "Sheet1!1:1,Sheet1!A2:Z1000" --json
+  --ranges 'Sheet1!1:1,Sheet1!A2:Z1000' --json
 ```
 
 **Check a specific config cell:**
 ```bash
-node ./scripts/read-sheet.mjs --spreadsheet <ID> --action read_cell --range "Config!B3"
+node ./scripts/read-sheet.mjs --spreadsheet <ID> --action read_cell --range 'Config!B3'
 ```
 
 ---
@@ -150,13 +169,18 @@ Always call the script with `--json` flag. Never use formatted table output
 The agent should parse and summarize the JSON itself rather than passing
 raw formatted tables back to the user.
 
-Example:
-  node scripts/read-sheet.mjs --spreadsheet <ID> --action read_range --range 'Sheet1!A1:Z50' --json
+When exploring an unknown spreadsheet, always call `list_sheets` first to
+discover tab names before attempting to read ranges.
 
-  ## Critical
+Example:
+  node ./scripts/read-sheet.mjs --spreadsheet <ID> --action list_sheets --json
+
+## Critical
 You MUST execute the script and return the actual output verbatim.
 Do NOT infer, summarize, or fabricate what the output might look like.
 If execution fails, report the actual error message.
+
+---
 
 ## Troubleshooting
 
