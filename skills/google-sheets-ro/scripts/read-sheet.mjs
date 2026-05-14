@@ -281,11 +281,28 @@ async function describeSheet(spreadsheetId, sheetName) {
     dataStartCol: dataStartCol + 1,   // Convert to 1-based index
     dataEndCol: dataEndCol + 1,       // Convert to 1-based index
     columns: columns,
-    actualDataRange: `${sheetName}!${String.fromCharCode(65 + dataStartCol)}${dataStartRow + 1}:${String.fromCharCode(65 + dataEndCol)}${dataEndRow + 1}`,
+    actualDataRange: `${sheetName}!${columnLetter(dataStartCol)}${dataStartRow + 1}:${columnLetter(dataEndCol)}${dataEndRow + 1}`,
     hasHeaderRow: hasHeader
   };
 }
- 
+
+// HELPERS
+/**
+ * Converts a column index to its corresponding letter(s) in A1 notation.
+ * @param {number} n - The column index (0-based).
+ * @returns {string} The column letter(s).
+ */
+function columnLetter(n) {
+  const letters = [];
+  let num = n + 1;
+  while (num > 0) {
+    const rem = (num - 1) % 26;
+    letters.unshift(String.fromCharCode(65 + rem));
+    num = Math.floor((num - rem - 1) / 26);
+  }
+  return letters.join('');
+}
+
 // ─── CLI ──────────────────────────────────────────────────────────────────────
  
 function printHelp() {
