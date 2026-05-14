@@ -38,6 +38,17 @@ https://docs.google.com/spreadsheets/d/<SPREADSHEET_ID>/edit
 
 ## Actions
 
+### `describe_sheet` — Get sheet metadata
+Fetches metadata for a specific sheet (tab) without cell data. Use this to inspect sheet properties like row/column count, data ranges, etc.
+
+```bash
+node ./scripts/read-sheet.mjs --spreadsheet <ID> --action describe_sheet --range 'Sheet1'
+```
+
+Returns: `{ title, rowCount, columnCount, dataRange }`
+
+---
+
 ### `list_sheets` — List all sheet names
 Metadata-only call — does not fetch any cell data. Use this first to discover sheet names before reading ranges.
 
@@ -94,8 +105,8 @@ Returns: `[{ range, data[][] }, ...]`
 | Flag | Description |
 |---|---|
 | `--spreadsheet <ID>` | Spreadsheet ID (required) |
-| `--action <action>` | `list_sheets` \| `read_all` \| `read_range` \| `read_cell` \| `read_multi` |
-| `--range <A1>` | A1 notation (required for `read_range`, `read_cell`) |
+| `--action <action>` | `describe_sheet` \| `list_sheets` \| `read_all` \| `read_range` \| `read_cell` \| `read_multi` |
+| `--range <A1>` | A1 notation (required for `read_range`, `read_cell`, `describe_sheet`) |
 | `--ranges <r1,r2>` | Comma-separated ranges (required for `read_multi`) |
 | `--key-file <path>` | Override key file path |
 | `--json` | Output raw JSON (default: formatted table) |
@@ -106,6 +117,9 @@ Returns: `[{ range, data[][] }, ...]`
 
 ```js
 const reader = require('./scripts/read-sheet.mjs');
+
+// Describe a sheet's metadata
+const { title, rowCount, columnCount, dataRange } = await reader.describeSheet(spreadsheetId, 'Sheet1');
 
 // List sheet names only
 const { spreadsheetTitle, sheets } = await reader.getSheetNames(spreadsheetId);
@@ -144,6 +158,11 @@ const results = await reader.readMultipleRanges(spreadsheetId, [
 node ./scripts/read-sheet.mjs --spreadsheet <ID> --action list_sheets --json
 ```
 
+**Learn about a sheet's structure before reading data:**
+```bash
+node ./scripts/read-sheet.mjs --spreadsheet <ID> --action describe_sheet --range 'Sheet1' --json
+```
+
 **Get all data as JSON for downstream processing:**
 ```bash
 node ./scripts/read-sheet.mjs --spreadsheet <ID> --action read_all --json
@@ -171,6 +190,8 @@ raw formatted tables back to the user.
 
 When exploring an unknown spreadsheet, always call `list_sheets` first to
 discover tab names before attempting to read ranges.
+
+Always call `describe_sheet` to get column types and sample values before interpreting the data to understand the sheet's structure and avoid out-of-bounds errors.
 
 Example:
   node ./scripts/read-sheet.mjs --spreadsheet <ID> --action list_sheets --json

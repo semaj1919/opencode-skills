@@ -140,6 +140,38 @@ async function getSheetNames(spreadsheetId) {
     sheets: meta.data.sheets.map((s) => s.properties.title),
   };
 }
+
+/**
+ * Describe the structure and content of a sheet.
+ * @returns { sheet: string, empty: boolean, totalRows: number, totalColumns: number, columns: [{ index, header, nonEmptyCount, inferredType, sample[] }] }
+ */
+async function describeSheet(spreadsheetId, sheetName) {
+  const { data } = await readRange(spreadsheetId, sheetName);
+
+  if (!data.length) return { sheet: sheetName, empty: true };
+
+  const headers = data[0];
+  const rows = data.slice(1);
+
+  const columns = headers.map((header, i) => {
+    const values = rows.map(r => r[i] ?? '').filter(v => v !== '');
+    const numeric = values.filter(v => !isNaN(v.replace(/[$,%]/g, '')));
+    return {
+      index: i,
+      header: header || `(col ${i + 1})`,
+      nonEmptyCount: values.length,
+      inferredType: numeric.length / values.length > 0.8 ? 'numeric' : 'text',
+      sample: values.slice(0, 3),
+    };
+  });
+
+  return {
+    sheet: sheetName,
+    totalRows: rows.length,
+    totalColumns: headers.length,
+    columns,
+  };
+}
  
 // ─── CLI ──────────────────────────────────────────────────────────────────────
  
@@ -149,16 +181,18 @@ Google Sheets Reader — Agent Skill
  
 Options:
   --spreadsheet <ID>   Spreadsheet ID (required)
-  --action <action>    read_all | read_range | read_cell | read_multi | list_sheets
-  --range <A1>         A1 notation range/cell (required for read_range, read_cell)
+  --action <action>    read_all | read_range | read_cell | read_multi | list_sheets | describe_sheet
+  --range <A1>         A1 notation range/cell (required for read_range, read_cell, describe_sheet)
   --ranges <r1,r2>     Comma-separated ranges (required for read_multi)
   --json               Output raw JSON instead of formatted text
  
 Examples:
-  node read-sheet.js --spreadsheet 1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgVE2upms --action read_all
+  node read-sheet.js --spreadsheet <ID> --action read_all
   node read-sheet.js --spreadsheet <ID> --action read_range --range "Sheet1!A1:C10"
   node read-sheet.js --spreadsheet <ID> --action read_cell  --range "Sheet1!B2"
   node read-sheet.js --spreadsheet <ID> --action read_multi --ranges "Sheet1!A1:B5,Sheet2!C1:D3"
+  node read-sheet.js --spreadsheet <ID> --action list_sheets
+  node read-sheet.js --spreadsheet <ID> --action describe_sheet --range "Sheet1"
 `);
 }
  
@@ -281,6 +315,32 @@ async function main() {
         }
         break;
       }
+
+      case 'describe_sheet': {
+        if (!range) {
+          console.error('Error: --range (sheet name) is required for describe_sheet.');
+          process.exit(1);
+        }
+        result = await describeSheet(spreadsheetId, range);
+        if (!jsonOutput) {
+          console.log(`\nSheet: ${result.sheet}`);
+          if (result.empty) {
+            console.log('(empty sheet)');
+            return;
+          }
+          console.log(`Total Rows: ${result.totalRows}`);
+          console.log(`Total Columns: ${result.totalColumns}`);
+          console.log('\nColumns:');
+          result.columns.forEach((col) => {
+            console.log(`  - ${col.header} (index: ${col.index}, type: ${col.inferredType}, non-empty: ${col.nonEmptyCount})`);
+            if (col.sample.length > 0) {
+              console.log(`    Sample values: ${col.sample.join(', ')}`);
+            }
+          });
+          return;
+        }
+        break;
+      }
  
       default:
         console.error(`Unknown action: ${action}`);
@@ -301,5 +361,5 @@ async function main() {
 if (import.meta.main) {
   main();
 } else {
-  module.exports = { readAll, readRange, readCell, readMultipleRanges, getSheetNames, getSheetsClient };
+  module.exports = { readAll, readRange, readCell, readMultipleRanges, getSheetNames, getSheetsClient, describeSheet };
 }
