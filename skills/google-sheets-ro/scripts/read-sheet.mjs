@@ -143,33 +143,146 @@ async function getSheetNames(spreadsheetId) {
 
 /**
  * Describe the structure and content of a sheet.
- * @returns { sheet: string, empty: boolean, totalRows: number, totalColumns: number, columns: [{ index, header, nonEmptyCount, inferredType, sample[] }] }
+ * @returns { sheet: string, empty: boolean, totalRows: number, totalColumns: number, dataStartRow: number, dataEndRow: number, dataStartCol: number, dataEndCol: number, actualDataRange: string, hasHeaderRow: boolean, columns: [{ index, header, nonEmptyCount, inferredType, sample[], actualStartRow: number, actualEndRow: number, actualColumnIndex: number }] }
  */
 async function describeSheet(spreadsheetId, sheetName) {
   const { data } = await readRange(spreadsheetId, sheetName);
 
   if (!data.length) return { sheet: sheetName, empty: true };
 
-  const headers = data[0];
-  const rows = data.slice(1);
+  // Find the actual data boundaries in a single pass through all data
+  let dataStartRow = Infinity;
+  let dataEndRow = -1;
+  let dataStartCol = Infinity;
+  let dataEndCol = -1;
+  let maxColumnIndex = -1;
 
-  const columns = headers.map((header, i) => {
-    const values = rows.map(r => r[i] ?? '').filter(v => v !== '');
-    const numeric = values.filter(v => !isNaN(v.replace(/[$,%]/g, '')));
-    return {
-      index: i,
-      header: header || `(col ${i + 1})`,
-      nonEmptyCount: values.length,
-      inferredType: numeric.length / values.length > 0.8 ? 'numeric' : 'text',
-      sample: values.slice(0, 3),
+  // Single pass to determine all boundaries
+  for (let i = 0; i < data.length; i++) {
+    const row = data[i];
+    if (row.some(cell => cell !== undefined && cell !== null && cell !== '')) {
+      // This row contains data
+      dataStartRow = Math.min(dataStartRow, i);
+      dataEndRow = Math.max(dataEndRow, i);
+      
+      // Check columns in this row for data
+      for (let j = 0; j < row.length; j++) {
+        if (row[j] !== undefined && row[j] !== null && row[j] !== '') {
+          dataStartCol = Math.min(dataStartCol, j);
+          dataEndCol = Math.max(dataEndCol, j);
+          maxColumnIndex = Math.max(maxColumnIndex, j);
+        }
+      }
+    }
+  }
+
+  const totalColumns = maxColumnIndex + 1;
+  const actualColumns = dataEndCol - dataStartCol + 1;
+
+  // If no data found
+  if (dataStartRow === Infinity) {
+    return { 
+      sheet: sheetName, 
+      empty: true,
+      totalRows: data.length,
+      totalColumns: data[0] ? data[0].length : 0,
+      dataStartRow: 0,
+      dataEndRow: 0,
+      dataStartCol: 0,
+      dataEndCol: 0,
+      columns: [],
+      actualDataRange: `${sheetName}!A1:A1`,
+      hasHeaderRow: false
     };
-  });
+  }
+
+  // If we have a header row, treat it as such (but make it flexible)
+  // We'll analyze the first row that has content to determine if it's a header or data
+  let headers = [];
+  let rowsData = [];
+  
+  // Determine if we have a header row by checking whether first meaningful row looks like headers
+  let hasHeader = false;
+  if (dataStartRow < dataEndRow) {
+    const firstDataRow = data[dataStartRow];
+    
+    // Check if the first row of actual data seems like it could be headers
+    // If most cells are non-numeric text values, treat as header row
+    let textCells = 0;
+    let totalCells = 0;
+    
+    for (let i = 0; i < Math.min(firstDataRow.length, dataStartRow + 10); i++) { // Check first 10 cells to avoid noise
+      const cell = firstDataRow[i];
+      if (cell !== undefined && cell !== null && cell !== '') {
+        totalCells++;
+        // If it's not a number or looks like a date/time, treat as text
+        if (isNaN(cell) || cell.toString().includes('/') || cell.toString().includes('-')) {
+          textCells++;
+        }
+      }
+    }
+    
+    // If more than 60% of non-empty cells in first row are text-like, assume header
+    if (totalCells > 0 && textCells / totalCells > 0.6) {
+      hasHeader = true;
+      headers = firstDataRow.map(cell => cell || '');
+      rowsData = data.slice(dataStartRow + 1, dataEndRow + 1);
+    } else {
+      // First row is data, so all rows are data
+      headers = Array(actualColumns).fill('').map((_, i) => `(col ${i + 1})`);
+      rowsData = data.slice(dataStartRow, dataEndRow + 1);
+    }
+  } else {
+    // Only one row of data - treat as data
+    headers = Array(actualColumns).fill('').map((_, i) => `(col ${i + 1})`);
+    rowsData = data.slice(dataStartRow, dataEndRow + 1);
+  }
+
+  // Create column analysis based on actual data (not assuming first row is header)
+  const columns = [];
+  
+  for (let i = 0; i < actualColumns; i++) {
+    const colIndex = dataStartCol + i;
+    const values = [];
+    
+    for (let j = 0; j < rowsData.length; j++) {
+      const cellValue = rowsData[j][colIndex];
+      if (cellValue !== undefined && cellValue !== null && cellValue !== '') {
+        values.push(cellValue);
+      }
+    }
+    
+    // Infer type based on actual data in column
+    let inferredType = 'text';
+    if (values.length > 0) {
+      const numeric = values.filter(v => !isNaN(v.toString().replace(/[$,%]/g, '')));
+      inferredType = numeric.length / values.length > 0.8 ? 'numeric' : 'text';
+    }
+    
+    columns.push({
+      index: i,
+      header: headers[i] || `(col ${i + 1})`,
+      nonEmptyCount: values.length,
+      inferredType: inferredType,
+      sample: values.slice(0, 3),
+      actualStartRow: dataStartRow + (hasHeader ? 1 : 0) + 1,
+      actualEndRow: dataEndRow + 1,
+      actualColumnIndex: colIndex
+    });
+  }
 
   return {
     sheet: sheetName,
-    totalRows: rows.length,
-    totalColumns: headers.length,
-    columns,
+    empty: false,
+    totalRows: data.length,
+    totalColumns: totalColumns,
+    dataStartRow: dataStartRow + 1, // Convert to 1-based index
+    dataEndRow: dataEndRow + 1,       // Convert to 1-based index
+    dataStartCol: dataStartCol + 1,   // Convert to 1-based index
+    dataEndCol: dataEndCol + 1,       // Convert to 1-based index
+    columns: columns,
+    actualDataRange: `${sheetName}!${String.fromCharCode(65 + dataStartCol)}${dataStartRow + 1}:${String.fromCharCode(65 + dataEndCol)}${dataEndRow + 1}`,
+    hasHeaderRow: hasHeader
   };
 }
  
@@ -330,6 +443,10 @@ async function main() {
           }
           console.log(`Total Rows: ${result.totalRows}`);
           console.log(`Total Columns: ${result.totalColumns}`);
+          console.log(`Actual Data Range: ${result.actualDataRange}`);
+          console.log(`Has Header Row: ${result.hasHeaderRow ? 'Yes' : 'No'}`);
+          console.log(`Data Start: Row ${result.dataStartRow}, Col ${result.dataStartCol}`);
+          console.log(`Data End: Row ${result.dataEndRow}, Col ${result.dataEndCol}`);
           console.log('\nColumns:');
           result.columns.forEach((col) => {
             console.log(`  - ${col.header} (index: ${col.index}, type: ${col.inferredType}, non-empty: ${col.nonEmptyCount})`);
